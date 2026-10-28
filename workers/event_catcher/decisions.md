@@ -55,6 +55,66 @@ ever sets `host`.
 
 Any protocol other than Kafka makes the worker exit with a clear error.
 
+### Parity with the Ruby / librdkafka path
+
+What the Go worker does not do that `manageiq-messaging` 2.2.0 (rdkafka) could do. "Inherited"
+means the Ruby path behaved the same for everything core produces. "Unrecorded" means the
+rationale was not written down when the decision was made; the reason given is inferred.
+
+| Capability | Ruby / librdkafka | Go worker | Kind | Reason |
+|---|---|---|---|---|
+| Arbitrary librdkafka keys from `messaging.yml` | merged into the config verbatim (`result.merge(options.except(...))`) | ignored, one warning listing key names | Intentional | franz-go has no string-keyed config passthrough; the options are typed |
+| Mutual TLS (`keystore_location`, `keystore_password`) | supported | ignored | Intentional | Nothing in core, pods or the appliance sets them |
+| SASL mechanisms other than `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` (`GSSAPI`, `OAUTHBEARER`) | `sasl.mechanism` was passed through unvalidated | exits at startup with a clear error | Unrecorded | Core only produces `username`/`password`. Kerberos and OAuth also need further keys (`sasl.kerberos.*`, token config) that only the passthrough could supply. This is not a franz-go limit: `sasl/kerberos` and `sasl/oauth` exist, and kerberos adds a dependency |
+| `SASL_PLAINTEXT` and TLS-without-SASL | only by setting a raw `security.protocol` key, which overrides the gem's choice | not available; `security.protocol` is ignored | Inherited | The gem derives the protocol from one flag: `ssl` true gives `SASL_SSL`, otherwise `PLAINTEXT`. Core's env and file paths never set `security.protocol`. The Go worker matches the derived behavior, including that credentials are not sent when `ssl` is false |
+| Producer tuning (acks, retries, `message.timeout.ms`, compression, linger, batching, socket and timeout settings) | settable via passthrough | franz-go defaults, not configurable | Intentional | Same cause as the first row. The defaults differ from librdkafka's |
+| Idempotent writes | off (librdkafka default) | off (`DisableIdempotentWrite`) | Parity | Deliberately matched; see the Decision above |
+| Delivery model | `publish_topic` waits on each delivery handle, 60s default | `ProduceSync` per event, `RecordDeliveryTimeout` 60s | Parity | Both are synchronous per event. franz-go has no delivery timeout by default, and a dead broker blocked `Publish` until core killed the worker on heartbeat, so the timeout is set explicitly |
+| Topic auto-creation | creates a missing topic if the broker allows it (tested against Kafka 4.3.1) | fails with `UNKNOWN_TOPIC_OR_PARTITION`; `manageiq.ems` must exist | Intentional | The appliance (`manageiq-messaging-ready`) and the pods operator (`KafkaTopic`) create it up front. Auto-creation would hide a wrong topic name and give the topic default partition and replication settings. Dev setups need the topic created by hand |
+| TLS implementation | OpenSSL: cipher strings, CRL/OCSP, PKCS#12 keystores, FIPS provider | Go `crypto/tls`, TLS 1.2 minimum, PEM CA file only | Consequence of pure Go | `CGO_ENABLED=0` rules out OpenSSL. Anyone needing OpenSSL or FIPS behavior should verify this worker first |
+| Certificates without a SAN | OpenSSL falls back to the Common Name | Go `crypto/tls` rejects them: `certificate relies on legacy Common Name field, use SANs instead` | Consequence of pure Go | Appliances configured by `manageiq-appliance_console` before the SAN fix (`-ext` on `keytool -certreq`, `-copy_extensions copy` on `openssl x509 -req`) have a broker certificate with CN only. Regenerate that certificate, or the worker cannot connect. Pods use Strimzi certificates, which have SANs (not verified) |
+| Client diagnostics (`debug=` contexts, statistics callback) | available | not exposed | Unrecorded | franz-go has loggers and hooks, but the worker does not wire them to config |
+| `encoding` | `yaml` by default, `json` when set | always JSON, key ignored | Inherited | Core always sets `json` |
+| Non-Kafka protocols | n/a (the gem is Kafka only; artemis lives elsewhere in core) | exits with an error | Intentional | Out of scope; see Context |
+
+#### What was verified, and where
+
+Checked by reading the sibling repos (`manageiq`, `manageiq-pods`, `manageiq-appliance`,
+`manageiq-rpm_build`, `manageiq-appliance_console`) and by running the clients:
+
+- Nothing sets `keystore_*` or `security.protocol`. The pods configure TLS on 9093 with
+  SCRAM-SHA-512 and `MESSAGING_SSL_CA`.
+- The appliance console writes `messaging.yml` from `config/messaging.kafka.yml` and sets only
+  `host`, `port`, `username`, `password`, `ssl` and `ca_file`. Port 9093 means `ssl: true` and the
+  broker listens `SASL_SSL` with `PLAIN`; any other port means `ssl: false`.
+- Both topic creators (`manageiq-messaging-ready`, the pods operator) create `manageiq.ems`.
+- A dead broker blocked `Publish` until the context ended (tested with a silent TCP listener); a
+  missing topic was auto-created by rdkafka but not by franz-go (tested on Kafka 4.3.1).
+- The console signed broker certificates without a SAN. Go rejected one in a local test; this is
+  fixed in `manageiq-appliance_console` but not yet released.
+
+#### Open items
+
+Not checkable from a developer machine. Each needs an owner or a real environment.
+
+| Item | Why it matters | How to check |
+|---|---|---|
+| Console SAN fix released and appliances regenerated | Existing appliances have CN-only broker certificates, and the worker cannot connect to them | Ship the console change. On an appliance: `openssl x509 -in /etc/kafka/config/keystore/cert-signed -noout -ext subjectAltName` |
+| `openssl x509 -copy_extensions` on appliance OpenSSL | The flag needs OpenSSL 3.0+; an older one rejects it | `openssl version` on an appliance |
+| Strimzi certificate SANs in pods | The pods trust path is assumed to be fine | `openssl s_client -connect <app>-kafka-bootstrap:9093 </dev/null \| openssl x509 -noout -ext subjectAltName` |
+| SCRAM-SHA-512 over TLS end to end | Only the unit-level SASL builder and a plaintext broker were tested | Add a `SASL_SSL` listener and a SCRAM user to a local broker and run the worker against it |
+| librdkafka version actually shipped | The RPM requires a system `librdkafka`, but the gem loads its own bundled copy; the shipped lockfile can differ | `bundle exec ruby -e 'require "rdkafka"; puts Rdkafka::LIBRDKAFKA_VERSION'` in a built environment |
+| FIPS | Go `crypto/tls` is not the OpenSSL FIPS provider | Ask the compliance owner whether the Kafka client must be FIPS-validated |
+| Kill during publish | An in-flight event could be lost or duplicated | SIGKILL the worker while it publishes and count events on the topic. Both workers start a fresh vCenter collector, so downtime events are not replayed in either |
+| Hand-edited `messaging.yml` on live appliances | Extra keys are ignored with a warning | Look for "ignoring unsupported messaging settings" in a running worker's log |
+| Console "unsecure" mode (port other than 9093) | The console writes `ssl: false` plus a username and password. The gem and the Go worker both send no credentials in that case, so a broker expecting SASL on that port would reject both | Check whether anyone runs the appliance Kafka on a non-9093 port. If so, decide whether to support `SASL_PLAINTEXT` |
+| `golang` in the RPM build image | ADR-004 says the image has no Go toolchain; `manageiq-rpm_build` has uncommitted edits adding it | Land those edits, then update ADR-004 |
+
+Reading the table: SASL mechanism support is a gap that was never decided, so it is cheap to
+revisit if a deployment needs Kerberos or OAuth. The SASL/TLS coupling is not a gap: it mirrors
+the gem. It only differs for a user who set a raw `security.protocol` key in `messaging.yml`,
+which the worker now reports in the ignored-keys warning.
+
 ## ADR-004: The binary is built at packaging time, not committed
 
 **Context.** The gem ships `git ls-files`, so an uncommitted binary is not in the gem. The RPM

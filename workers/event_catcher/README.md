@@ -70,7 +70,8 @@ Publishing conforms to `manageiq-messaging` wire specifications:
   * `client.id`: `vmware-event-catcher-<ems_id>`
   * `sasl.mechanism`: `PLAIN`, `SCRAM-SHA-256`, or `SCRAM-SHA-512`
   * `security.protocol`: `SASL_SSL` or `PLAINTEXT` (SSL certificate verification via CA bundle when configured)
-  * Synchronous delivery per event
+  * Synchronous delivery per event, 60s delivery timeout
+  * The `manageiq.ems` topic is not auto-created and must exist
 
 ## Building & Testing
 

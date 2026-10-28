@@ -1,10 +1,17 @@
 package publisher
 
 import (
+	"context"
+	"io"
+	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
+
+	"github.com/ManageIQ/manageiq-providers-vmware/workers/event_catcher/internal/parser"
 )
 
 // testCAPEM is a self-signed certificate used only to exercise buildTLS PEM parsing.
@@ -151,5 +158,43 @@ func TestSeedBrokers(t *testing.T) {
 				t.Errorf("got %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestPublishTimesOutOnSilentBroker uses a listener that accepts connections and never replies.
+func TestPublishTimesOutOnSilentBroker(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go io.Copy(io.Discard, c)
+		}
+	}()
+
+	old := deliveryTimeout
+	deliveryTimeout = time.Second
+	defer func() { deliveryTimeout = old }()
+
+	p, err := New(Config{Host: "127.0.0.1", Port: ln.Addr().(*net.TCPAddr).Port, EmsID: []byte("1")}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	start := time.Now()
+	if err := p.Publish(ctx, &parser.Event{EventType: "x"}); err == nil {
+		t.Fatal("expected an error from a silent broker")
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("Publish only returned when the context expired (after %s); delivery timeout not applied", time.Since(start))
 	}
 }

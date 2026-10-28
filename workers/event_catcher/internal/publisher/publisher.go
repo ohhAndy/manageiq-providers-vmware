@@ -10,7 +10,7 @@
 // Auth: SASL PLAIN (default), SCRAM-SHA-256, SCRAM-SHA-512.
 // TLS: only when Config.SSL is true; otherwise plaintext (SASL credentials are not sent).
 // Idempotent writes are disabled (franz-go enables them by default; the broker may lack the ACL).
-// Each Publish call is synchronous.
+// Each Publish call is synchronous and times out after deliveryTimeout.
 //
 // See README.md "Kafka Wire Format".
 package publisher
@@ -25,6 +25,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/sasl"
@@ -35,6 +36,9 @@ import (
 )
 
 const topic = "manageiq.ems"
+
+// deliveryTimeout matches the 60s default wait on an rdkafka delivery handle.
+var deliveryTimeout = 60 * time.Second
 
 // Publisher is the interface the event loop calls.
 type Publisher interface {
@@ -83,6 +87,7 @@ func New(cfg Config, log *slog.Logger) (*KafkaPublisher, error) {
 		kgo.ClientID(fmt.Sprintf("vmware-event-catcher-%s", emsID)),
 		kgo.DefaultProduceTopic(topic),
 		kgo.DisableIdempotentWrite(),
+		kgo.RecordDeliveryTimeout(deliveryTimeout),
 	}
 
 	if cfg.SSL {
