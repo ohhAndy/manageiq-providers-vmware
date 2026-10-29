@@ -222,9 +222,7 @@ func (s *Session) handleChange(ctx context.Context, cs types.PropertyChange, onE
 		return nil
 	}
 
-	// The initial update assigns the whole page as an ArrayOfEvent. With partial updates enabled,
-	// later ones are nested changes: latestPage[<key>] with op=add carries one new event, and
-	// op=remove (nil value) evicts an old one.
+	// The initial update assigns the whole page as an ArrayOfEvent.
 	var events []types.BaseEvent
 	if page, ok := cs.Val.(types.ArrayOfEvent); ok {
 		events = page.Event
@@ -238,7 +236,7 @@ func (s *Session) handleChange(ctx context.Context, cs types.PropertyChange, onE
 		evt := parser.Parse(rawEvt)
 		evt.EmsID = s.emsID
 
-		if _, blacklisted := s.blacklist[evt.EventType]; blacklisted {
+		if s.isBlacklisted(rawEvt, evt.EventType) {
 			continue
 		}
 
@@ -247,6 +245,15 @@ func (s *Session) handleChange(ctx context.Context, cs types.PropertyChange, onE
 		}
 	}
 	return nil
+}
+
+// isBlacklisted matches either the resolved event type or the raw vim type name (e.g. "EventEx").
+func (s *Session) isBlacklisted(raw types.BaseEvent, resolvedType string) bool {
+	if _, ok := s.blacklist[resolvedType]; ok {
+		return true
+	}
+	_, ok := s.blacklist[reflect.Indirect(reflect.ValueOf(raw)).Type().Name()]
+	return ok
 }
 
 // asBaseEvent converts a nested-change value to a types.BaseEvent. vCenter sends these as plain

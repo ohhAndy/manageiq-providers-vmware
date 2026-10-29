@@ -84,9 +84,6 @@ make check
 # Run tests with race detection / vcsim integration tests
 make test
 
-# Build static binary to bin/event_catcher
+# Build binary as worker executable (used by ManageIQ core runner)
 make build
-
-# Build binary and install as worker executable (used by ManageIQ core runner)
-make install
 ```

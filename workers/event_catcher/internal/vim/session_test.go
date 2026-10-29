@@ -224,6 +224,20 @@ func TestLoop_Dispatch(t *testing.T) {
 			steps:     steps(updateSet("1", objUpdate(types.ObjectUpdateKindModify, change(latestPage, page(poweredOn(), login(), poweredOff()))))),
 			want:      []string{typePoweredOn, typePoweredOff},
 		},
+		{
+			name:      "blacklisting EventEx drops EventEx events with an EventTypeId",
+			blacklist: []string{"EventEx"},
+			steps: steps(updateSet("1", objUpdate(types.ObjectUpdateKindModify, change(latestPage,
+				page(&types.EventEx{EventTypeId: "com.vmware.vc.authorization.NoPermission"}, poweredOn()))))),
+			want: []string{typePoweredOn},
+		},
+		{
+			name:      "blacklisting an EventTypeId drops that EventEx event",
+			blacklist: []string{"com.vmware.vc.authorization.NoPermission"},
+			steps: steps(updateSet("1", objUpdate(types.ObjectUpdateKindModify, change(latestPage,
+				page(&types.EventEx{EventTypeId: "com.vmware.vc.authorization.NoPermission"}, poweredOn()))))),
+			want: []string{typePoweredOn},
+		},
 	}
 
 	for _, tc := range tests {

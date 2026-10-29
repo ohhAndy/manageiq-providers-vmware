@@ -1,16 +1,11 @@
-.PHONY: build install test vet fmt check clean
+.PHONY: build test vet fmt check clean
 
-GO      ?= go
-BIN_DIR := bin
-BIN     := $(BIN_DIR)/event_catcher
+GO ?= go
 
-# Static, stripped binary. CGO is disabled on purpose: the build must not need a C toolchain
+# Static, stripped binary. CGO is disabled on purpose: the build must not need a C toolchain.
+# ManageIQ core execs workers/event_catcher/worker directly, so the binary is built there.
 build:
-	CGO_ENABLED=0 $(GO) build -trimpath -ldflags="-s -w" -o $(BIN) ./cmd/event_catcher
-
-# ManageIQ core execs workers/event_catcher/worker, so install copies the binary to that path.
-install: build
-	install -m 0755 $(BIN) worker
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags="-s -w" -o worker ./cmd/event_catcher
 
 test:
 	$(GO) test ./...
@@ -24,4 +19,4 @@ fmt:
 check: fmt vet test
 
 clean:
-	rm -rf $(BIN_DIR)
+	rm -f worker

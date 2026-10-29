@@ -122,7 +122,7 @@ build (`manageiq-rpm_build`) assembles the gemset from `bundle install`, and its
 Go toolchain. The pods images contain no worker code; they install the RPMs. Appliance and pods
 repos have no event-catcher references.
 
-**Decision.** The binary is built into the plugin directory during gemset creation; containers and appliances then get it from the RPM. The binary is not committed. Developers run `make install`.
+**Decision.** The binary is built into the plugin directory during gemset creation; containers and appliances then get it from the RPM. The binary is not committed. Developers run `make build`.
 
 **Consequences.** Needs a `golang` build dependency in the build environment and a build step per
 architecture (x86_64, aarch64, ppc64le, s390x).
