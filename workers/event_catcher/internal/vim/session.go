@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"reflect"
 	"strings"
 
 	"github.com/vmware/govmomi/event"
@@ -220,12 +221,20 @@ func (s *Session) handleChange(ctx context.Context, cs types.PropertyChange, onE
 	if !strings.HasPrefix(cs.Name, "latestPage") {
 		return nil
 	}
-	page, ok := cs.Val.(types.ArrayOfEvent)
-	if !ok {
+
+	// The initial update assigns the whole page as an ArrayOfEvent. With partial updates enabled,
+	// later ones are nested changes: latestPage[<key>] with op=add carries one new event, and
+	// op=remove (nil value) evicts an old one.
+	var events []types.BaseEvent
+	if page, ok := cs.Val.(types.ArrayOfEvent); ok {
+		events = page.Event
+	} else if evt, ok := asBaseEvent(cs.Val); ok {
+		events = []types.BaseEvent{evt}
+	} else {
 		return nil
 	}
 
-	for _, rawEvt := range page.Event {
+	for _, rawEvt := range events {
 		evt := parser.Parse(rawEvt)
 		evt.EmsID = s.emsID
 
@@ -238,6 +247,23 @@ func (s *Session) handleChange(ctx context.Context, cs types.PropertyChange, onE
 		}
 	}
 	return nil
+}
+
+// asBaseEvent converts a nested-change value to a types.BaseEvent. vCenter sends these as plain
+// structs (types.UserLoginSessionEvent), but BaseEvent is implemented on the pointer type, so a
+// plain type assertion fails. It returns false for nil and for anything that is not an event.
+func asBaseEvent(v any) (types.BaseEvent, bool) {
+	if e, ok := v.(types.BaseEvent); ok {
+		return e, true
+	}
+	rv := reflect.ValueOf(v)
+	if !rv.IsValid() || rv.Kind() != reflect.Struct {
+		return nil, false
+	}
+	ptr := reflect.New(rv.Type())
+	ptr.Elem().Set(rv)
+	e, ok := ptr.Interface().(types.BaseEvent)
+	return e, ok
 }
 
 func (s *Session) connect(ctx context.Context) (*vim25.Client, *session.Manager, error) {

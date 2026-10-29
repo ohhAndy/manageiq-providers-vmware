@@ -161,6 +161,53 @@ func TestLoop_Dispatch(t *testing.T) {
 				change(latestPage, page(poweredOn()))))),
 			want: []string{typePoweredOn},
 		},
+		// Partial updates: after the initial page, vCenter sends one nested change per event.
+		{
+			name: "nested latestPage changes carry one event each",
+			steps: steps(updateSet("1", objUpdate(types.ObjectUpdateKindModify,
+				change("latestPage[101]", poweredOn()),
+				change("latestPage[102]", poweredOff())))),
+			want: []string{typePoweredOn, typePoweredOff},
+		},
+		{
+			name: "initial page followed by a nested single event",
+			steps: steps(
+				updateSet("1", objUpdate(types.ObjectUpdateKindEnter, change(latestPage, page(poweredOn())))),
+				updateSet("2", objUpdate(types.ObjectUpdateKindModify, change("latestPage[103]", poweredOff())))),
+			want: []string{typePoweredOn, typePoweredOff},
+		},
+		{
+			name:      "blacklist applies to nested single events",
+			blacklist: []string{typeLogin},
+			steps: steps(updateSet("1", objUpdate(types.ObjectUpdateKindModify,
+				change("latestPage[104]", login()),
+				change("latestPage[105]", poweredOn())))),
+			want: []string{typePoweredOn},
+		},
+		{
+			// vCenter sends nested events as plain structs, not pointers; BaseEvent is implemented
+			// on the pointer, so these must be converted.
+			name: "nested changes carrying non-pointer structs are delivered",
+			steps: steps(updateSet("1", objUpdate(types.ObjectUpdateKindModify,
+				change("latestPage[107]", types.VmPoweredOnEvent{}),
+				change("latestPage[108]", types.VmPoweredOffEvent{})))),
+			want: []string{typePoweredOn, typePoweredOff},
+		},
+		{
+			name:      "blacklist applies to non-pointer nested events",
+			blacklist: []string{typeLogin},
+			steps: steps(updateSet("1", objUpdate(types.ObjectUpdateKindModify,
+				change("latestPage[109]", types.UserLoginSessionEvent{}),
+				change("latestPage[110]", types.VmPoweredOnEvent{})))),
+			want: []string{typePoweredOn},
+		},
+		{
+			name: "nested remove changes (nil value) are ignored",
+			steps: steps(updateSet("1", objUpdate(types.ObjectUpdateKindModify,
+				change("latestPage[100]", nil),
+				change("latestPage[106]", poweredOn())))),
+			want: []string{typePoweredOn},
+		},
 		// Empty shapes.
 		{name: "nil FilterSet", steps: steps(&types.UpdateSet{Version: "1"})},
 		{name: "empty ObjectSet", steps: steps(&types.UpdateSet{Version: "1", FilterSet: []types.PropertyFilterUpdate{{}}})},
