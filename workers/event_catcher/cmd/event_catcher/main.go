@@ -27,6 +27,8 @@ func main() {
 }
 
 func run() int {
+	setproctitle()
+
 	cfg, err := config.Parse(os.Stdin)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -109,6 +111,12 @@ func run() int {
 	cleanup(cleanupCtx, log, hb)
 
 	return exitCode
+}
+
+func setproctitle() {
+	if len(os.Args) > 0 {
+		os.Args[0] = "MIQ: Vmware::InfraManager::EventCatcher guid: " + os.Getenv("GUID")
+	}
 }
 
 // shutdownTimeout is how long cleanup has after a signal.
