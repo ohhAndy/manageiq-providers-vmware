@@ -496,3 +496,26 @@ func TestParse_MessagingShapes(t *testing.T) {
 		})
 	}
 }
+
+// Core's normalize_settings! turns numeric-looking strings ("7.0") into numbers before sending
+// them on stdin, so minimum_supported_version arrives as a JSON number.
+func TestParse_MinimumSupportedVersionAsNumber(t *testing.T) {
+	doc := `{
+	  "messaging": {"protocol": "Kafka", "host": "localhost", "port": 9092},
+	  "settings": {"ems": {"ems_vmware": {"minimum_supported_version": 7}}},
+	  "ems": [{
+	    "type": "` + vcenterType + `",
+	    "id": 1,
+	    "endpoints": [{"role": "default", "hostname": "vcenter.example.com", "port": 443}],
+	    "authentications": [{"authtype": "default", "userid": "u", "password": "p"}]
+	  }]
+	}`
+
+	got, err := config.Parse(strings.NewReader(doc))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Settings.MinimumSupportedVersion != "7" {
+		t.Errorf("MinimumSupportedVersion = %q, want %q", got.Settings.MinimumSupportedVersion, "7")
+	}
+}

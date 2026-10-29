@@ -135,8 +135,26 @@ type rawEMSSettings struct {
 }
 
 type rawEMSVmwareSettings struct {
-	BlacklistedEventNames   []string `json:"blacklisted_event_names"`
-	MinimumSupportedVersion string   `json:"minimum_supported_version"`
+	BlacklistedEventNames   []string   `json:"blacklisted_event_names"`
+	MinimumSupportedVersion flexString `json:"minimum_supported_version"`
+}
+
+// flexString accepts a JSON string or number. Core's normalize_settings! converts numeric-looking
+// strings such as "7.0" into integers before sending them on stdin.
+type flexString string
+
+func (f *flexString) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*f = flexString(s)
+		return nil
+	}
+	var n json.Number
+	if err := json.Unmarshal(data, &n); err != nil {
+		return err
+	}
+	*f = flexString(n.String())
+	return nil
 }
 
 type rawWorkerSettings struct {
@@ -273,6 +291,6 @@ func parseSettings(s rawSettings) Settings {
 	return Settings{
 		HeartbeatTimeout:        hb,
 		BlacklistedEventNames:   s.EMS.EMSVmware.BlacklistedEventNames,
-		MinimumSupportedVersion: s.EMS.EMSVmware.MinimumSupportedVersion,
+		MinimumSupportedVersion: string(s.EMS.EMSVmware.MinimumSupportedVersion),
 	}
 }

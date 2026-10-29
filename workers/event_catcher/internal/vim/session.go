@@ -230,7 +230,6 @@ func (s *Session) handleChange(ctx context.Context, cs types.PropertyChange, onE
 		evt.EmsID = s.emsID
 
 		if _, blacklisted := s.blacklist[evt.EventType]; blacklisted {
-			s.log.Debug("skipping blacklisted event", "event_type", evt.EventType)
 			continue
 		}
 

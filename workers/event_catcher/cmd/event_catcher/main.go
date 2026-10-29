@@ -41,6 +41,11 @@ func run() int {
 		"ems_port", cfg.EMS.Port,
 	)
 
+	log.Info(logging.Msg("filtered events"),
+		"count", len(cfg.Settings.BlacklistedEventNames),
+		"names", strings.Join(cfg.Settings.BlacklistedEventNames, ","),
+	)
+
 	// Core sends "Kafka" (see MiqQueue.messaging_client_options).
 	if !strings.EqualFold(cfg.Messaging.Protocol, "kafka") {
 		fmt.Fprintf(os.Stderr, "unsupported messaging protocol %q: only \"Kafka\" is supported\n", cfg.Messaging.Protocol)

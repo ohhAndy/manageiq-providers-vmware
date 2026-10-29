@@ -97,11 +97,10 @@ func TestLoop_Dispatch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		blacklist   []string
-		steps       []rtStep
-		want        []string
-		wantSkipped int
+		name      string
+		blacklist []string
+		steps     []rtStep
+		want      []string
 	}{
 		// Happy path.
 		{
@@ -173,11 +172,10 @@ func TestLoop_Dispatch(t *testing.T) {
 
 		// Blacklist.
 		{
-			name:        "blacklisted types are dropped, others kept",
-			blacklist:   []string{typeLogin},
-			steps:       steps(updateSet("1", objUpdate(types.ObjectUpdateKindModify, change(latestPage, page(poweredOn(), login(), poweredOff()))))),
-			want:        []string{typePoweredOn, typePoweredOff},
-			wantSkipped: 1,
+			name:      "blacklisted types are dropped, others kept",
+			blacklist: []string{typeLogin},
+			steps:     steps(updateSet("1", objUpdate(types.ObjectUpdateKindModify, change(latestPage, page(poweredOn(), login(), poweredOff()))))),
+			want:      []string{typePoweredOn, typePoweredOff},
 		},
 	}
 
@@ -197,9 +195,6 @@ func TestLoop_Dispatch(t *testing.T) {
 				if string(e.EmsID) != "42" {
 					t.Errorf("EmsID = %q, want %q", e.EmsID, "42")
 				}
-			}
-			if got := strings.Count(h.logs.String(), "skipping blacklisted event"); got != tc.wantSkipped {
-				t.Errorf("blacklist skips logged = %d, want %d", got, tc.wantSkipped)
 			}
 			if h.beats != len(tc.steps) {
 				t.Errorf("heartbeats = %d, want one per wait return (%d)", h.beats, len(tc.steps))
